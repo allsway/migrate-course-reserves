@@ -3,9 +3,9 @@
 
 /* 
 	Writes to the Alma course API and creates the following based on course data in CSV format and item data in CSV format:
-	(1) course record
-	(2) reading list  
-	(3) citation list	
+	(1) course records
+	(2) reading lists  
+	(3) citation lists	
 */
 
 function curljson ($url,$body)
@@ -281,8 +281,7 @@ while (($line = fgetcsv($file)) !== FALSE) {
 	  	  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
 	  	  $n = 0;
 	  	  $course_xml = new SimpleXMLElement($output);
-	  	 // var_dump($course_xml);
-	  	  
+
 	  	  if($course_xml->errorsExist == "true")
 	  	  {
 	  	  	while(($course_xml->errorList->error->errorCode == '401006') && ($n < 20))
