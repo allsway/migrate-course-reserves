@@ -38,7 +38,6 @@ function curljson ($url,$body)
 */
 function getdates($date)
 {
-	var_dump($date);
 	if ($date != '  -  -  ')
 	{
 		$date = explode('-',$date);
