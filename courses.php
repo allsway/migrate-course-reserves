@@ -2,13 +2,12 @@
 
 
 /* 
-	Writes to the course API and creates a:
+	Writes to the Alma course API and creates the following based on course data in CSV format and item data in CSV format:
 	(1) course record
 	(2) reading list  
-	(3) citation list
-
-	
+	(3) citation list	
 */
+
 function curljson ($url,$body)
 {
 	$curl = curl_init($url);
@@ -29,7 +28,6 @@ function curljson ($url,$body)
 	{
 		shell_exec('echo `date`  No response from API >> course_errors.log');
 		return -1;
-		
 	}
 }
 
@@ -40,6 +38,7 @@ function curljson ($url,$body)
 */
 function getdates($date)
 {
+	var_dump($date);
 	if ($date != '  -  -  ')
 	{
 		$date = explode('-',$date);
@@ -67,7 +66,6 @@ function trimitems($item)
 
 /*
 	Searches for the item record based on the item barcode, through the SRU
-	
 */
 
 function callsru($searchterm)
@@ -101,12 +99,6 @@ function callsru($searchterm)
 	With the SRU results, parses the bib record MMS ID and the bib record title (both necessary for the citation API call)
 	
 	Returns array of bib MMS IDs and record titles
-	
-	I'm not sure what to do with duplicate items (same bib record)
-	How are these supposed to be treated in Alma?  I assume that we only want to add each bib record once, right?
-	
-	So I guess I have to check for other duplicates? ugh. 
-
 */
 function matchitems($items,$file2)
 {
@@ -122,45 +114,54 @@ function matchitems($items,$file2)
 		}
 		else
 		{
+			// barcodes with spaces cause SRU response issue
+			// should check with other characters too..
+			$result = str_replace(' ', '', $result);
 			$xml = callsru($result);
 			$xml = new SimpleXMLElement($xml);
 			if(($xml->numberOfRecords > 0) && ($xml->numberOfRecords < 2))
 			{
 				$ids = $xml->xpath('//record/controlfield[@tag=001]');
-				$titles = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
+				$title1 = $xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
+				$title2 = $xml->xpath('//record/datafield[@tag=245]/subfield[@code="b"]'); // Gets the 245$b field
+				
+				if(!empty($title2))
+				{
+					$bib_ids[$c]['title'] = $title1[0].'' . ' ' . rtrim(($title2[0].''),'/');
+				}
+				else
+				{
+					$bib_ids[$c]['title'] = $title1[0].'';
+
+				}
 				$bib_ids[$c]['mms_id'] = $ids[0].'';
-				$bib_ids[$c]['title'] = $titles[0].'';
+				echo $bib_ids[$c]['title'] . PHP_EOL;
 				$c++;
 			}
 			else if ($xml->numberOfRecords > 0)
 			{
 				shell_exec("echo `date` More than one record found for ".$item." >> course_errors.log" );
 			}
-			
-		}
-
+		 }
   	  }  	  
   	  return $bib_ids;
-
 }
 
 
 /*
-	Main()
 	Sets the API keys and URLS
 	
 	Opens the file of course records in CSV format 
 	Parses the header (fields can be delivered in any order)
 	
 	Sends the date fields to the date format function
-
 */
 
-$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses?apikey='.$key;
+$ini_array = parse_ini_file("courses.ini");
 
-//argv[1] is the file of course records. 
-//Reads through course records
-
+$key= $ini_array['apikey'];
+$baseurl = $ini_array['baseurl'];
+$url = $baseurl.'/almaws/v1/courses?apikey='.$key;
 
 $record_num_pos = 0;
 $begin_date_pos = 0;
@@ -172,6 +173,8 @@ $course_field_pos = 0;
 $items_list_pos = 0;
 $ccode3_pos = 0;
 
+//argv[1] is the file of course records. 
+//Reads through course records
 $file = fopen($argv[1],"r");
 $matches = array();
 $name = '';
@@ -184,65 +187,66 @@ while (($line = fgetcsv($file)) !== FALSE) {
   //Parse header
 	  if (strpos(implode(",",$line),"RECORD #") !== false)
 	  {
-			for ($i=0; $i<count($line); $i++)
+		for ($i=0; $i<count($line); $i++)
+		{
+			switch($line[$i])
 			{
-				switch($line[$i])
-				{
-					case "RECORD #(COURSE)":
-					$record_num_pos = $i;
-					break;
-					case "BEGIN DATE":
-					$begin_date_pos = $i;
-					break;
-					case "END DATE":
-					$end_date_pos = $i;
-					break;
-					case "CREATED(COURSE)":
-					$created_date_pos = $i;
-					break;
-					case "UPDATED(COURSE)":
-					$updated_date_pos = $i;
-					break;
-					case "PROF/TA":
-					$prof_pos = $i;
-					break;
-					case "COURSE":
-					$course_field_pos = $i;
-					break;
-					case "ITEM ID":
-					$items_list_pos = $i;
-					break;
-					case "CCODE3":
-					$ccode3_pos = $i;
-					break;
-					default:
-					shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
-				
-				}
+				case "RECORD #(COURSE)":
+				$record_num_pos = $i;
+				break;
+				case "BEGIN DATE":
+				$begin_date_pos = $i;
+				break;
+				case "END DATE":
+				$end_date_pos = $i;
+				break;
+				case "CREATED(COURSE)":
+				$created_date_pos = $i;
+				break;
+				case "UPDATED(COURSE)":
+				$updated_date_pos = $i;
+				break;
+				case "PROF/TA":
+				$prof_pos = $i;
+				break;
+				case "COURSE":
+				$course_field_pos = $i;
+				break;
+				case "ITEM ID":
+				$items_list_pos = $i;
+				break;
+				case "CCODE3":
+				$ccode3_pos = $i;
+				break;
+				default:
+				shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
+			
 			}
+		}
 	  }
 	  else
 	  {  	 
 		  $start = getdates($line[$begin_date_pos]);
 		  $end = getdates($line[$end_date_pos]);
-
-	  
-		 if ($line[$prof_pos] != '')
-		 {
-			  $notecontent = array(array(
-				  'content' => "Instructor: " . $line[$prof_pos]
-			  ));
-		 }
-		 else
-		 {
-			 $notecontent = array(array(
-				 'content' => ''
-			 ));
-		 }
+		
+	  	  $instructors = explode(';',$line[$prof_pos]);
+			 if ($line[$prof_pos] != '')
+			 {
+				  $notecontent = array(array(
+					  'content' => "Instructor: " . $line[$prof_pos]
+				  ));
+			 }
+			 else
+			 {
+				 $notecontent = array(array(
+					 'content' => ''
+				 ));
+			 }
 	 
 		 // Why can't we just throw the other name into the searchable_id field?  or is it better to create a separate course?
 		 // Will iterate through names and do something 
 		  $names = explode(';', $line[$course_field_pos]);
+		  var_dump($names);
 		  $shortestname = $names[0];
 		  $longestname = $names[0];
 		  foreach($names as $name)
@@ -257,7 +261,6 @@ while (($line = fgetcsv($file)) !== FALSE) {
 				}
 		  }
 		  
-		  // I still need to find a way to make the course code something unique 
 		  $shortestname = trim($shortestname,'"');
 		  $longestname = trim($longestname,'"');
 		  $course_fields = array (
@@ -271,30 +274,56 @@ while (($line = fgetcsv($file)) !== FALSE) {
 				'searchable_id' => array($line[$record_num_pos]),
 				'note'=> $notecontent		
 		  );
-	  
-
 
 		  $body = json_encode($course_fields);	  
 		  $output = curljson($url,$body);
-	  
+	  	  
+	  	  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
+	  	  $n = 0;
+	  	  $course_xml = new SimpleXMLElement($output);
+	  	 // var_dump($course_xml);
+	  	  
+	  	  if($course_xml->errorsExist == "true")
+	  	  {
+	  	  	while(($course_xml->errorList->error->errorCode == '401006') && ($n < 20))
+	  	  	{
+	  	  		$n++;
+	  	  		$shortestname = $shortestname . '-' . $n;
+	  	  		//redo the above, with a unique ID
+	  	  		 $course_fields = array (
+					'code' => $shortestname,
+					'name' => $longestname,
+					'academic_department' => array('value' => ''),
+					'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
+					'status' => 'ACTIVE',
+					'start_date' => $start,
+					'end_date' => $end,
+					'searchable_id' => array($line[$record_num_pos]),
+					'note'=> $notecontent		
+			  );
+			  $body = json_encode($course_fields);	  
+			  $output = curljson($url,$body);
+			  $course_xml = new SimpleXMLElement($output);
+	  	  		
+	  	  	}
+	  	  }
 		  /*
 			Gets the new course ID to send to the reading lists api
 			Uses returned course response to get the course ID in Alma to send to the reading list API
 		  */
-		  $course_xml = new SimpleXMLElement($output);
 		  $course_id = $course_xml->id.'';
-	  
+  
 		  /*	  
 			Create reading list
 			Create parameters for the reading list Create Reading List API
-		
+	
 		  */
-		  $readinglist_url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
+		  $readinglist_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
 
 		  // I'm not sure what is the best way to make the reading list code unique
 		  // Right now, using former system record number (unique) in combination with course code
 		   $reading_list = array (
-				'code' => $shortestname . ": " . $line[$record_num_pos],
+				'code' => $shortestname,
 				'name' => $longestname,
 				'status' => array('value' => 'Complete' )
 		   );	
@@ -305,12 +334,11 @@ while (($line = fgetcsv($file)) !== FALSE) {
 			/*
 				Create citations!
 				Calls matchitems() to obtain the bib record mms ids for each attached item in the course
-			
 			*/	
-		
+	
 			$reading_list_id = $reading_xml->id;
-			$citation_url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/'.$course_id.'/reading-lists/'.$reading_list_id.'/citations?apikey='.$key;  
-		
+			$citation_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists/'.$reading_list_id.'/citations?apikey='.$key;  
+	
 			/*
 				Gets the items attached to each course record and adds to citations
 			*/
@@ -320,7 +348,7 @@ while (($line = fgetcsv($file)) !== FALSE) {
 				$bib_ids = matchitems($items,$argv[2]);
 				// Removes duplicate bibs - Alma uses bibs instead of items, so we end up with dupes
 				$bib_ids = array_map("unserialize", array_unique(array_map("serialize", $bib_ids)));
-			
+		
 
 				// Add a citation for each bib record
 				// Static values for complete and physical book seem ok here, they should always be the same	
@@ -334,14 +362,39 @@ while (($line = fgetcsv($file)) !== FALSE) {
 							'desc' => 'Physical Book'
 						),
 						'metadata' => $bib_id
-				
+			
 					);
 					$citation_body = json_encode($citations);
 					$citation_output  = curljson($citation_url,$citation_body);
-				//	var_dump($citation_output);
 				}
 			}
 		}
 	}
 }
 fclose($file);
+
+
+?>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
