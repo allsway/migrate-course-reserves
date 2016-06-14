@@ -4,7 +4,8 @@
 Takes as arguments: 
    - a csv file of course records 
    - a csv file of item records
-   `php courses.php course_data.csv item_data.csv`
+   
+Run as `php courses.php course_data.csv item_data.csv`
 
 Creates:
   - A course record in Alma for every course record in the CSV file
