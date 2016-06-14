@@ -2,12 +2,15 @@
 
 
 /* 
-	Writes to the Alma course API and creates the following based on course data in CSV format and item data in CSV format:
-	(1) course records
-	(2) reading lists  
-	(3) citation lists	
+	Writes to the course API and creates a:
+	(1) course record
+	(2) reading list  
+	(3) citation list	
 */
 
+/*
+	POST API call, json input 
+*/
 function curljson ($url,$body)
 {
 	$curl = curl_init($url);
@@ -28,6 +31,7 @@ function curljson ($url,$body)
 	{
 		shell_exec('echo `date`  No response from API >> course_errors.log');
 		return -1;
+		
 	}
 }
 
@@ -38,6 +42,7 @@ function curljson ($url,$body)
 */
 function getdates($date)
 {
+	var_dump($date);
 	if ($date != '  -  -  ')
 	{
 		$date = explode('-',$date);
@@ -98,6 +103,12 @@ function callsru($searchterm)
 	With the SRU results, parses the bib record MMS ID and the bib record title (both necessary for the citation API call)
 	
 	Returns array of bib MMS IDs and record titles
+	
+	I'm not sure what to do with duplicate items (same bib record)
+	How are these supposed to be treated in Alma?  I assume that we only want to add each bib record once, right?
+	
+	So I guess I have to check for other duplicates? ugh. 
+
 */
 function matchitems($items,$file2)
 {
@@ -121,9 +132,9 @@ function matchitems($items,$file2)
 			if(($xml->numberOfRecords > 0) && ($xml->numberOfRecords < 2))
 			{
 				$ids = $xml->xpath('//record/controlfield[@tag=001]');
-				$title1 = $xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
-				$title2 = $xml->xpath('//record/datafield[@tag=245]/subfield[@code="b"]'); // Gets the 245$b field
-				
+				$title1 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
+				$title2 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="b"]');
+				var_dump($title2);
 				if(!empty($title2))
 				{
 					$bib_ids[$c]['title'] = $title1[0].'' . ' ' . rtrim(($title2[0].''),'/');
@@ -137,7 +148,7 @@ function matchitems($items,$file2)
 				echo $bib_ids[$c]['title'] . PHP_EOL;
 				$c++;
 			}
-			else if ($xml->numberOfRecords > 0)
+			else if ($xml->numberOfRecords > 1)
 			{
 				shell_exec("echo `date` More than one record found for ".$item." >> course_errors.log" );
 			}
@@ -162,22 +173,27 @@ $key= $ini_array['apikey'];
 $baseurl = $ini_array['baseurl'];
 $url = $baseurl.'/almaws/v1/courses?apikey='.$key;
 
-$record_num_pos = 0;
-$begin_date_pos = 0;
-$end_date_pos = 0;
-$created_date_pos = 0;
-$updated_date_pos = 0;
-$prof_pos = 0;
-$course_field_pos = 0;
-$items_list_pos = 0;
-$ccode3_pos = 0;
-
 //argv[1] is the file of course records. 
 //Reads through course records
+
+
+$record_num_pos = -1;
+$begin_date_pos = -1;
+$end_date_pos = -1;
+$created_date_pos = -1;
+$updated_date_pos = -1;
+$prof_pos = -1;
+$course_field_pos = -1;
+$items_list_pos = -1;
+$ccode3_pos = -1;
+$note_pos = -1;
+
 $file = fopen($argv[1],"r");
 $matches = array();
 $name = '';
 
+
+//will switch to '|'-delimited later ($file,1000,"|")
 while (($line = fgetcsv($file)) !== FALSE) {
 
  if ($line != NULL)
@@ -217,6 +233,9 @@ while (($line = fgetcsv($file)) !== FALSE) {
 				case "CCODE3":
 				$ccode3_pos = $i;
 				break;
+				case "NOTE":
+				$note_pos = $i;
+				break;
 				default:
 				shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
 			
@@ -225,71 +244,117 @@ while (($line = fgetcsv($file)) !== FALSE) {
 	  }
 	  else
 	  {  	 
+	  
+	  //	  var_dump($line);
+	  
+	  	// re-arrange the date fields so that they are accepted by the Alma APIs
 		  $start = getdates($line[$begin_date_pos]);
 		  $end = getdates($line[$end_date_pos]);
 		
-	  	  $instructors = explode(';',$line[$prof_pos]);
-			 if ($line[$prof_pos] != '')
-			 {
-				  $notecontent = array(array(
-					  'content' => "Instructor: " . $line[$prof_pos]
-				  ));
-			 }
-			 else
-			 {
-				 $notecontent = array(array(
-					 'content' => ''
-				 ));
-			 }
+
 	 
 		 // Why can't we just throw the other name into the searchable_id field?  or is it better to create a separate course?
 		 // Will iterate through names and do something 
+		 
+		 /*
+		 	Options:
+		 	Add all additional names to searchable IDs
+		 	Add a new course for each name
+		 	Combine the shortest names together and the longest names together for viewing
+		 */
 		  $names = explode(';', $line[$course_field_pos]);
-		  var_dump($names);
+	//	  var_dump($names);
+		  $temp_array = array();
+
 		  $shortestname = $names[0];
 		  $longestname = $names[0];
 		  foreach($names as $name)
 		  {
-				if(strlen($name) < strlen($shortestname))
-				{
-					$shortestname = $name;
-				}
-				if(strlen($name) > strlen($longestname))
-				{
-					$longestname = $name;
-				}
+			if(strlen($name) < strlen($shortestname))
+			{
+				$shortestname = $name;
+			}
+			if(strlen($name) > strlen($longestname))
+			{
+				$longestname = $name;
+			}
 		  }
 		  
+		  if (count($names) > 2)
+		  {
+ 				//remove the course code and course name, and enter all extra names into the searchable ids field
+				if(($arraykey = array_search($shortestname, $names)) !== false) {
+					array_splice($names,$arraykey,1);
+				}
+				if(($arraykey = array_search($longestname, $names)) !== false) {
+					array_splice($names,$arraykey,1);
+				}
+
+		  }
+		//  var_dump($names);
+		  $searchable_ids = implode($names,'; ');
+		  $searchable_ids .= '; ' . $line[$record_num_pos];
+		  $searchable_ids = str_replace('"','',$searchable_ids);
+		  var_dump($searchable_ids);
+
+		 
+		 // Currently placing all instructors within one note field.  
+		 // Any NOTE fields in a second single note field.  It's not clear if it's worth attemping to split these more - it might not work well.  s
+		  $notes_array = array();
+		  $instructors = explode(';',$line[$prof_pos]);
+	
+		  $notes = explode(';',$line[$note_pos]); 
+		  $note_counter = 0;
+		  foreach($instructors as $instructor)
+		  {
+	  		$notes_array[$note_counter] = array('content' => "Instructor: " . $instructor);
+	  		$note_counter++;
+		  }
+		  if($note_pos > 0)
+		  {
+			  foreach($notes as $note)
+			  {
+				$notes_array[$note_counter] = array('content' => "Note: " . $note);
+				$note_counter++;
+
+			  }
+		  }
+	  	 
+	  	  var_dump(json_encode($notes_array));
+	  	  
 		  $shortestname = trim($shortestname,'"');
+		  $tempname = $shortestname;
 		  $longestname = trim($longestname,'"');
 		  $course_fields = array (
-				'code' => $shortestname,
-				'name' => $longestname,
-				'academic_department' => array('value' => ''),
-				'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
-				'status' => 'ACTIVE',
-				'start_date' => $start,
-				'end_date' => $end,
-				'searchable_id' => array($line[$record_num_pos]),
-				'note'=> $notecontent		
+			'code' => $shortestname,
+			'name' => $longestname,
+			'academic_department' => array('value' => ''),
+			'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
+			'status' => 'ACTIVE',
+			'start_date' => $start,
+			'end_date' => $end,
+			'searchable_id' => array($searchable_ids),
+			'note'=> $notes_array		
 		  );
 
-		  $body = json_encode($course_fields);	  
+
+		  $body = json_encode($course_fields);	
+		  var_dump($body);  
 		  $output = curljson($url,$body);
-	  	  
+	  	  var_dump($output);
 	  	  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
 	  	  $n = 0;
 	  	  $course_xml = new SimpleXMLElement($output);
-
+	  	  
 	  	  if($course_xml->errorsExist == "true")
 	  	  {
-	  	  	while(($course_xml->errorList->error->errorCode == '401006') && ($n < 20))
+	  	  	while(($continue == true) && ($n < 20))
 	  	  	{
 	  	  		$n++;
-	  	  		$shortestname = $shortestname . '-' . $n;
+	  	  		$tempname = $shortestname . '-' . $n;
 	  	  		//redo the above, with a unique ID
 	  	  		 $course_fields = array (
-					'code' => $shortestname,
+					'code' => $tempname,
 					'name' => $longestname,
 					'academic_department' => array('value' => ''),
 					'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
@@ -302,6 +367,15 @@ while (($line = fgetcsv($file)) !== FALSE) {
 			  $body = json_encode($course_fields);	  
 			  $output = curljson($url,$body);
 			  $course_xml = new SimpleXMLElement($output);
+	  	  		if($course_xml->errorsExist == "true")
+	  	  		{
+	  	  			$continue = true;
+	  	  		}
+	  	  		else
+	  	  		{
+	  	  			$continue = false;
+	  	  		}
+	  	  		
 	  	  		
 	  	  	}
 	  	  }
@@ -318,10 +392,8 @@ while (($line = fgetcsv($file)) !== FALSE) {
 		  */
 		  $readinglist_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
 
-		  // I'm not sure what is the best way to make the reading list code unique
-		  // Right now, using former system record number (unique) in combination with course code
-		   $reading_list = array (
-				'code' => $shortestname,
+		  $reading_list = array (
+				'code' => $tempname,
 				'name' => $longestname,
 				'status' => array('value' => 'Complete' )
 		   );	
@@ -364,13 +436,13 @@ while (($line = fgetcsv($file)) !== FALSE) {
 					);
 					$citation_body = json_encode($citations);
 					$citation_output  = curljson($citation_url,$citation_body);
+					var_dump($citation_output);
 				}
 			}
 		}
 	}
 }
 fclose($file);
-
 
 ?>
 
