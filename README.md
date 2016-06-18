@@ -1,5 +1,17 @@
 #####README
 
+######Pre-requsite setup in Alma
+   - The SRU integration profile must be set up in Alma prior to running this
+   - A default course unit must be set up in Alma and set in the your .ini file
+   
+######courses.ini
+```
+apikey = "apikey"
+baseurl = "baseurl"
+campuscode = "campus code for SRU"
+courseunit = "course unit code"
+```
+
 ######courses.php
 Takes as arguments: 
    - a csv file of course records 
