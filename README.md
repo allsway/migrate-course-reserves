@@ -5,11 +5,18 @@
    - A default course unit must be set up in Alma and set in the your .ini file
    
 ######courses.ini
+
+Configuration setup can be modified in the file courses.ini.  
+
 ```
 apikey = "apikey"
 baseurl = "baseurl"
 campuscode = "campus code for SRU"
-courseunit = "course unit code"
+;delimter used in the courses.csv course extract file
+delimeter = "|"    
+;The name for the course processing department that you would like for 'courses' to use.
+;View your current processing deparments under Fulfillment Configuration | Courses | Processing Departments. 
+processing_dept = "Course Unit"
 ```
 
 ######courses.php
