@@ -6,30 +6,33 @@
 	(1) course record
 	(2) reading list  
 	(3) citation list	
+	
+	For each course record supplied in input file 
 */
 
 function curljson ($url,$body)
 {
-	$curl = curl_init($url);
-	curl_setopt($curl, CURLOPT_HEADER, false);
-	curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
-	curl_setopt($curl, CURLOPT_POST, true);
-	curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+		$curl = curl_init($url);
+		curl_setopt($curl, CURLOPT_HEADER, false);
+		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
+		curl_setopt($curl, CURLOPT_POST, true);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+		$response = curl_exec($curl);
+		curl_close($curl);
+		try 
+		{
+			$xml = new SimpleXMLElement($response);
+			return $xml;
+		}
+		catch(Exception $exception)
+		{
+			echo $exception;
+			shell_exec('echo `date` ' . $exception . ' >> course_errors.log');
+			exit;
+		}
 
-	$response = curl_exec($curl);
-	curl_close($curl);
 
-	if(isset($response))
-	{
-		return $response;
-	}
-	else 
-	{
-		shell_exec('echo `date`  No response from API >> course_errors.log');
-		return -1;
-		
-	}
 }
 
 
@@ -37,7 +40,7 @@ function curljson ($url,$body)
 	Manipulates dates in the old format
 	DD-MM-YYY to YYYY-MM-DD, which is the expected format by the courses API. 
 */
-function getdates($date)
+function getdates($date,$default_date)
 {
 	if ($date != '  -  -  ' && $date != '  -  -    ')
 	{
@@ -47,8 +50,8 @@ function getdates($date)
 	else 
 	{
 		// Not sure what to do in case that the date is empty.  Ex Libris automatically sets an end date if it's not supplied. 
-		// Select a default end date? 
-		$date = '2016-12-12';
+		// Default end date currently set in .ini file
+		$date = $default_date;
 	}
 	return $date;
 }
@@ -70,23 +73,26 @@ function trimitems($item)
 
 function callsru($searchterm)
 {
-	$campuscode = "01CALS_SFR";
-	$baseurl = "https://na03.alma.exlibrisgroup.com/view/sru/". $campuscode ."?version=1.2&operation=searchRetrieve&recordSchema=marcxml&query=alma.all_for_ui=" . $searchterm;
+	$baseurl = $GLOBALS['sruurl'] . "/view/sru/". $GLOBALS['campuscode'] ."?version=1.2&operation=searchRetrieve&recordSchema=marcxml&query=alma.all_for_ui=" . $searchterm;
 	$ch = curl_init();
 	curl_setopt($ch,CURLOPT_URL, $baseurl);
 	curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
 	$result = curl_exec($ch);
-	curl_close($ch);	
-	$xml = new SimpleXMLElement($result);
-	if(isset($xml))
+	$httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	
+	// Check if SRU is up
+	if($httpcode != '200')
 	{
-		return $xml;
+		shell_exec('echo `date`  No response from SRU.  Error: '. $httpcode .' >> course_errors.log');
+		echo "SRU down, program exited";
+		exit;
 	}
 	else
 	{
-		shell_exec('echo `date`  No response from SRU >> course_errors.log');
-		result -1;
+		$xml = new SimpleXMLElement($result);
+		return $xml;
 	}
+	curl_close($ch);	
 	
 }
 
@@ -106,7 +112,7 @@ function callsru($searchterm)
 	So I guess I have to check for other duplicates? ugh. 
 
 */
-function matchitems($items,$file2)
+function matchitems($items,$file2,$oldid)
 {
 	  $bib_ids = array();
   	  $c = 0;
@@ -128,7 +134,7 @@ function matchitems($items,$file2)
 			$xml = callsru($result);
 			if(($xml->numberOfRecords > 0) && ($xml->numberOfRecords < 2))
 			{
-				// Pulling the 245 $a, $b and $c fields (apparently necessary) for full title info
+				// Pulling the 245 $a, $b for title info
 				$ids = $xml->xpath('//record/controlfield[@tag=001]');
 				$title1 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
 				$title2 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="b"]');
@@ -136,20 +142,18 @@ function matchitems($items,$file2)
 				$bib_ids[$c]['title'] = $title1[0].'';
 				if(!empty($title2))
 				{
-					$bib_ids[$c]['title'] .=   ' ' . rtrim(($title2[0].''),'\/');
+					$bib_ids[$c]['title'] .=   ' ' . rtrim(($title2[0].''),'/');
 				}
 				else 
 				{
 					$bib_ids[$c]['title'] = rtrim($bib_ids[$c]['title'],'/');
 				}
 				$bib_ids[$c]['mms_id'] = $ids[0].'';
-				echo $bib_ids[$c]['title'] . PHP_EOL;
-
 				$c++;
 			}
 			else if ($xml->numberOfRecords > 1)
 			{
-				shell_exec("echo `date` More than one result found for barcode ". $result . ", correct item record: ".$item." >> course_errors.log" );
+				shell_exec("echo `date` More than one result found for barcode ". $result . ", correct item record: ".$item.", Course record: " .$oldid. " >> course_errors.log" );
 			}
 		 }
   	  }  	  
@@ -158,20 +162,22 @@ function matchitems($items,$file2)
 
 
 /*
-	Sets the API keys and URLS
-	
-	Opens the file of course records in CSV format 
-	Parses the header (fields can be delivered in any order)
-	
-	Sends the date fields to the date format function
+	Sets script configuration parameters
 */
+
 
 $ini_array = parse_ini_file("courses.ini");
 
 $key= $ini_array['apikey'];
 $baseurl = $ini_array['baseurl'];
+$delimiter = $ini_array['delimeter'];
+$GLOBALS['campuscode'] = $ini_array['campuscode'];
+$GLOBALS['sruurl'] = $ini_array['sruurl'];
+$processing_dept =  $ini_array['processing_dept'];
+$default_date = $ini_array['default_date'];
+
+
 $url = $baseurl.'/almaws/v1/courses?apikey='.$key;
-$delimiter = '|';
 
 
 $record_num_pos = -1;
@@ -198,8 +204,11 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 
  if ($line != NULL)
  {
-  //$line is an array of the csv elements
-  //Parse header
+  /*
+  		$line is an array of the csv elements
+  		Opens the file of course records in CSV format 
+		Parses the header (fields can be delivered in any order)
+  */
 	  if (strpos(implode($delimiter,$line),"RECORD #") !== false)
 	  {
 			for ($i=0; $i<count($line); $i++)
@@ -247,8 +256,8 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 	  	/* 
 	  		Call getdates to re-arrange the date fields so that they are accepted by the Alma APIs
 		*/
-		  $start = getdates($line[$begin_date_pos]);
-		  $end = getdates($line[$end_date_pos]);
+		  $start = getdates($line[$begin_date_pos],$default_date);
+		  $end = getdates($line[$end_date_pos],$default_date);
 				 
 		 /*
 		 	Options:
@@ -286,7 +295,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 			  foreach($notes as $note)
 			  {
 			  		$note = trim(trim($note,' '),'"'); 
-					$notes_array[$note_counter] = array('content' => "Note: " . $note   );
+					$notes_array[$note_counter] = array('content' => "Note: " . $note);
 					$note_counter++;
 			  }
 		  }
@@ -300,9 +309,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 	  	  	 }
 	  	  }
 	  	  
-	  	  //$processing_dept = $ini_array['processing_dept'];
 
-	  	  $processing_dept = 'Course Unit';
 	  	 
 	  	 /*
 	  	 	Creates a separate course for each name that exists in the current course record
@@ -333,10 +340,10 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 
 
 			  $body = json_encode($course_fields);	
-			  $output = curljson($url,$body);
+			  $course_xml = curljson($url,$body);
 			  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
 			  $n = 1;
-			  $course_xml = new SimpleXMLElement($output);
+			 // $course_xml = new SimpleXMLElement($output);
 			  $continue = true;
 		  
 			  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
@@ -358,8 +365,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 							'note'=> $notes_array		
 					  );
 					  $body = json_encode($course_fields);	  
-					  $output = curljson($url,$body);
-					  $course_xml = new SimpleXMLElement($output);
+					  $course_xml = curljson($url,$body);
 					  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
 					  {
 							$continue = true;
@@ -389,8 +395,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 			   );	
 
 			   $list_body = json_encode($reading_list);
-			   $reading_output = curljson($readinglist_url,$list_body);
-			   $reading_xml = new SimpleXMLElement($reading_output);
+			   $reading_xml = curljson($readinglist_url,$list_body);
 				/*
 					Create citations!
 					Calls matchitems() to obtain the bib record mms ids for each attached item in the course
@@ -406,7 +411,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				{	
 					$items = explode(';',$line[$items_list_pos]);
 					// Second file is barcodes.csv (item record numbers and corresponding barcodes)
-					$bib_ids = matchitems($items,$argv[2]);
+					$bib_ids = matchitems($items,$argv[2],$searchable_ids);
 					// Removes duplicate bibs - Alma uses bibs instead of items, so we end up with dupes
 					$bib_ids = array_map("unserialize", array_unique(array_map("serialize", $bib_ids)));
 		
@@ -435,8 +440,6 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 	}
 }
 fclose($file);
-
-
 
 
 
