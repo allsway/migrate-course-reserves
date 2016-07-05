@@ -6,33 +6,33 @@
 	(1) course record
 	(2) reading list  
 	(3) citation list	
+	
+	For each course record supplied in input file 
 */
 
-/*
-	POST API call, json input 
-*/
 function curljson ($url,$body)
 {
-	$curl = curl_init($url);
-	curl_setopt($curl, CURLOPT_HEADER, false);
-	curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
-	curl_setopt($curl, CURLOPT_POST, true);
-	curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+		$curl = curl_init($url);
+		curl_setopt($curl, CURLOPT_HEADER, false);
+		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
+		curl_setopt($curl, CURLOPT_POST, true);
+		curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+		$response = curl_exec($curl);
+		curl_close($curl);
+		try 
+		{
+			$xml = new SimpleXMLElement($response);
+			return $xml;
+		}
+		catch(Exception $exception)
+		{
+			echo $exception;
+			shell_exec('echo `date` ' . $exception . ' >> course_errors.log');
+			exit;
+		}
 
-	$response = curl_exec($curl);
-	curl_close($curl);
 
-	if(isset($response))
-	{
-		return $response;
-	}
-	else 
-	{
-		shell_exec('echo `date`  No response from API >> course_errors.log');
-		return -1;
-		
-	}
 }
 
 
@@ -40,10 +40,9 @@ function curljson ($url,$body)
 	Manipulates dates in the old format
 	DD-MM-YYY to YYYY-MM-DD, which is the expected format by the courses API. 
 */
-function getdates($date)
+function getdates($date,$default_date)
 {
-	var_dump($date);
-	if ($date != '  -  -  ')
+	if ($date != '  -  -  ' && $date != '  -  -    ')
 	{
 		$date = explode('-',$date);
 		$date = $date[2].'-'.$date[0].'-'.$date[1];
@@ -51,8 +50,8 @@ function getdates($date)
 	else 
 	{
 		// Not sure what to do in case that the date is empty.  Ex Libris automatically sets an end date if it's not supplied. 
-		// Select a default end date? 
-		$date = '2016-12-12';
+		// Default end date currently set in .ini file
+		$date = $default_date;
 	}
 	return $date;
 }
@@ -69,28 +68,31 @@ function trimitems($item)
 
 
 /*
-	Searches for the item record based on the item barcode, through the SRU
+	Searches for the item record based on the item barcode, through the SRU	
 */
 
 function callsru($searchterm)
 {
-	$searchterm = urldecode($searchterm);
-	$campuscode = "01CALS_SJO";
-	$baseurl = "https://na03.alma.exlibrisgroup.com/view/sru/". $campuscode ."?version=1.2&operation=searchRetrieve&recordSchema=marcxml&query=alma.all_for_ui=" . $searchterm;
+	$baseurl = $GLOBALS['sruurl'] . "/view/sru/". $GLOBALS['campuscode'] ."?version=1.2&operation=searchRetrieve&recordSchema=marcxml&query=alma.all_for_ui=" . $searchterm;
 	$ch = curl_init();
 	curl_setopt($ch,CURLOPT_URL, $baseurl);
 	curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
 	$result = curl_exec($ch);
-	curl_close($ch);	
-	if(isset($result))
+	$httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	
+	// Check if SRU is up
+	if($httpcode != '200')
 	{
-		return $result;
+		shell_exec('echo `date`  No response from SRU.  Error: '. $httpcode .' >> course_errors.log');
+		echo "SRU down, program exited";
+		exit;
 	}
 	else
 	{
-		shell_exec('echo `date`  No response from SRU >> course_errors.log');
-		result -1;
+		$xml = new SimpleXMLElement($result);
+		return $xml;
 	}
+	curl_close($ch);	
 	
 }
 
@@ -110,14 +112,16 @@ function callsru($searchterm)
 	So I guess I have to check for other duplicates? ugh. 
 
 */
-function matchitems($items,$file2)
+function matchitems($items,$file2,$oldid)
 {
 	  $bib_ids = array();
   	  $c = 0;
 	  foreach($items as $item)
   	  {
-		$item = trimitems($item);		
-		$result =  shell_exec("grep " .$item. " " . $file2 . " | cut -d, -f3" );
+		$item = trimitems($item);
+		$barcode_position = "2";
+		$result =  shell_exec("grep " .$item. " " . $file2 . " | cut -d, -f" . $barcode_position );
+		echo $result . PHP_EOL;
 		if (strlen($result) < 4)
 		{
 			shell_exec("echo `date`  barcode for ".$item." not found in file >> course_errors.log");
@@ -128,29 +132,28 @@ function matchitems($items,$file2)
 			// should check with other characters too..
 			$result = str_replace(' ', '', $result);
 			$xml = callsru($result);
-			$xml = new SimpleXMLElement($xml);
 			if(($xml->numberOfRecords > 0) && ($xml->numberOfRecords < 2))
 			{
+				// Pulling the 245 $a, $b for title info
 				$ids = $xml->xpath('//record/controlfield[@tag=001]');
 				$title1 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="a"]'); //Gets the 245$a field
 				$title2 = 	$xml->xpath('//record/datafield[@tag=245]/subfield[@code="b"]');
-				var_dump($title2);
+
+				$bib_ids[$c]['title'] = $title1[0].'';
 				if(!empty($title2))
 				{
-					$bib_ids[$c]['title'] = $title1[0].'' . ' ' . rtrim(($title2[0].''),'/');
+					$bib_ids[$c]['title'] .=   ' ' . rtrim(($title2[0].''),'/');
 				}
-				else
+				else 
 				{
-					$bib_ids[$c]['title'] = $title1[0].'';
-
+					$bib_ids[$c]['title'] = rtrim($bib_ids[$c]['title'],'/');
 				}
 				$bib_ids[$c]['mms_id'] = $ids[0].'';
-				echo $bib_ids[$c]['title'] . PHP_EOL;
 				$c++;
 			}
 			else if ($xml->numberOfRecords > 1)
 			{
-				shell_exec("echo `date` More than one record found for ".$item." >> course_errors.log" );
+				shell_exec("echo `date` More than one result found for barcode ". $result . ", correct item record: ".$item.", Course record: " .$oldid. " >> course_errors.log" );
 			}
 		 }
   	  }  	  
@@ -159,22 +162,22 @@ function matchitems($items,$file2)
 
 
 /*
-	Sets the API keys and URLS
-	
-	Opens the file of course records in CSV format 
-	Parses the header (fields can be delivered in any order)
-	
-	Sends the date fields to the date format function
+	Sets script configuration parameters
 */
+
 
 $ini_array = parse_ini_file("courses.ini");
 
 $key= $ini_array['apikey'];
 $baseurl = $ini_array['baseurl'];
-$url = $baseurl.'/almaws/v1/courses?apikey='.$key;
+$delimiter = $ini_array['delimeter'];
+$GLOBALS['campuscode'] = $ini_array['campuscode'];
+$GLOBALS['sruurl'] = $ini_array['sruurl'];
+$processing_dept =  $ini_array['processing_dept'];
+$default_date = $ini_array['default_date'];
 
-//argv[1] is the file of course records. 
-//Reads through course records
+
+$url = $baseurl.'/almaws/v1/courses?apikey='.$key;
 
 
 $record_num_pos = -1;
@@ -187,75 +190,75 @@ $course_field_pos = -1;
 $items_list_pos = -1;
 $ccode3_pos = -1;
 $note_pos = -1;
+$url_pos = -1;
 
+
+//argv[1] is the file of course records. 
+//Reads through course records
 $file = fopen($argv[1],"r");
-$matches = array();
-$name = '';
 
 
-//will switch to '|'-delimited later ($file,1000,"|")
-while (($line = fgetcsv($file)) !== FALSE) {
+// For '|'-delimited file
+// Second parameter is longest length in file (set high)
+while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 
  if ($line != NULL)
  {
-  //$line is an array of the csv elements
-  //Parse header
-	  if (strpos(implode(",",$line),"RECORD #") !== false)
+  /*
+  		$line is an array of the csv elements
+  		Opens the file of course records in CSV format 
+		Parses the header (fields can be delivered in any order)
+  */
+	  if (strpos(implode($delimiter,$line),"RECORD #") !== false)
 	  {
-		for ($i=0; $i<count($line); $i++)
-		{
-			switch($line[$i])
+			for ($i=0; $i<count($line); $i++)
 			{
-				case "RECORD #(COURSE)":
-				$record_num_pos = $i;
-				break;
-				case "BEGIN DATE":
-				$begin_date_pos = $i;
-				break;
-				case "END DATE":
-				$end_date_pos = $i;
-				break;
-				case "CREATED(COURSE)":
-				$created_date_pos = $i;
-				break;
-				case "UPDATED(COURSE)":
-				$updated_date_pos = $i;
-				break;
-				case "PROF/TA":
-				$prof_pos = $i;
-				break;
-				case "COURSE":
-				$course_field_pos = $i;
-				break;
-				case "ITEM ID":
-				$items_list_pos = $i;
-				break;
-				case "CCODE3":
-				$ccode3_pos = $i;
-				break;
-				case "NOTE":
-				$note_pos = $i;
-				break;
-				default:
-				shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
-			
+				switch($line[$i])
+				{
+					case "RECORD #":
+					$record_num_pos = $i;
+					break;
+					case "BEGIN DATE":
+					$begin_date_pos = $i;
+					break;
+					case "END DATE":
+					$end_date_pos = $i;
+					break;
+					case "CREATED":
+					$created_date_pos = $i;
+					break;
+					case "UPDATED":
+					$updated_date_pos = $i;
+					break;
+					case "PROF/TA":
+					$prof_pos = $i;
+					break;
+					case "COURSE":
+					$course_field_pos = $i;
+					break;
+					case "ITEM ID":
+					$items_list_pos = $i;
+					break;
+					case "URL":
+					$url_pos = $i;
+					break;
+					case "COUR NOTE":
+					$note_pos = $i;
+					break;
+					default:
+					shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
+				
+				}
 			}
-		}
 	  }
 	  else
-	  {  	 
-	  
-	  //	  var_dump($line);
-	  
-	  	// re-arrange the date fields so that they are accepted by the Alma APIs
-		  $start = getdates($line[$begin_date_pos]);
-		  $end = getdates($line[$end_date_pos]);
-		
-
-	 
-		 // Why can't we just throw the other name into the searchable_id field?  or is it better to create a separate course?
-		 // Will iterate through names and do something 
-		 
+	  {  	 	  
+	  	/* 
+	  		Call getdates to re-arrange the date fields so that they are accepted by the Alma APIs
+		*/
+		  $start = getdates($line[$begin_date_pos],$default_date);
+		  $end = getdates($line[$end_date_pos],$default_date);
+				 
 		 /*
 		 	Options:
 		 	Add all additional names to searchable IDs
@@ -263,186 +266,183 @@ while (($line = fgetcsv($file)) !== FALSE) {
 		 	Combine the shortest names together and the longest names together for viewing
 		 */
 		  $names = explode(';', $line[$course_field_pos]);
-	//	  var_dump($names);
 		  $temp_array = array();
-
-		  $shortestname = $names[0];
-		  $longestname = $names[0];
-		  foreach($names as $name)
-		  {
-			if(strlen($name) < strlen($shortestname))
-			{
-				$shortestname = $name;
-			}
-			if(strlen($name) > strlen($longestname))
-			{
-				$longestname = $name;
-			}
-		  }
-		  
-		  if (count($names) > 2)
-		  {
- 				//remove the course code and course name, and enter all extra names into the searchable ids field
-				if(($arraykey = array_search($shortestname, $names)) !== false) {
-					array_splice($names,$arraykey,1);
-				}
-				if(($arraykey = array_search($longestname, $names)) !== false) {
-					array_splice($names,$arraykey,1);
-				}
-
-		  }
-		//  var_dump($names);
-		  $searchable_ids = implode($names,'; ');
-		  $searchable_ids .= '; ' . $line[$record_num_pos];
-		  $searchable_ids = str_replace('"','',$searchable_ids);
-		  var_dump($searchable_ids);
-
 		 
-		 // Currently placing all instructors within one note field.  
-		 // Any NOTE fields in a second single note field.  It's not clear if it's worth attemping to split these more - it might not work well.  s
+		  $searchable_ids = $line[$record_num_pos];
+		  $searchable_ids = str_replace('"','',$searchable_ids);
+
+		 /*
+		 	Creates notes section of course record
+		 	Each instructor is added into a separate note line
+		 	Each note is added into a separate note line
+		 	Any additional non-mappable fields can be added to a separate note line
+		 */
 		  $notes_array = array();
 		  $instructors = explode(';',$line[$prof_pos]);
-	
+		  $urls = explode(';',$line[$url_pos]);
 		  $notes = explode(';',$line[$note_pos]); 
 		  $note_counter = 0;
+		  
+		  
 		  foreach($instructors as $instructor)
 		  {
-	  		$notes_array[$note_counter] = array('content' => "Instructor: " . $instructor);
-	  		$note_counter++;
+		  		$instructor = trim(trim($instructor,' '),'"');
+		  		$notes_array[$note_counter] = array('content' => "Instructor: " . $instructor);
+		  		$note_counter++;
 		  }
-		  if($note_pos > 0)
+		  if($note_pos > 0 && strlen($notes[0])>2)
 		  {
 			  foreach($notes as $note)
 			  {
-				$notes_array[$note_counter] = array('content' => "Note: " . $note);
-				$note_counter++;
-
+			  		$note = trim(trim($note,' '),'"'); 
+					$notes_array[$note_counter] = array('content' => "Note: " . $note);
+					$note_counter++;
 			  }
 		  }
-	  	 
-	  	  var_dump(json_encode($notes_array));
-	  	  
-		  $shortestname = trim($shortestname,'"');
-		  $tempname = $shortestname;
-		  $longestname = trim($longestname,'"');
-		  $course_fields = array (
-			'code' => $shortestname,
-			'name' => $longestname,
-			'academic_department' => array('value' => ''),
-			'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
-			'status' => 'ACTIVE',
-			'start_date' => $start,
-			'end_date' => $end,
-			'searchable_id' => array($searchable_ids),
-			'note'=> $notes_array		
-		  );
-
-
-		  $body = json_encode($course_fields);	
-		  var_dump($body);  
-		  $output = curljson($url,$body);
-	  	  var_dump($output);
-	  	  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
-	  	  $n = 0;
-	  	  $course_xml = new SimpleXMLElement($output);
-	  	  
-	  	  if($course_xml->errorsExist == "true")
+	  	  if($url_pos > 0 && strlen($urls[0])>2)
 	  	  {
-	  	  	while(($continue == true) && ($n < 20))
-	  	  	{
-	  	  		$n++;
-	  	  		$tempname = $shortestname . '-' . $n;
-	  	  		//redo the above, with a unique ID
-	  	  		 $course_fields = array (
-					'code' => $tempname,
+	  	  	 foreach($urls as $url_note)
+	  	  	 {
+	  	  	 	$url_note = trim(trim($url_note,' '),'"'); 
+	  	  	 	$notes_array[$note_counter] = array('content' => "URL: " . $url_note);
+	  	  	 	$note_counter++;
+	  	  	 }
+	  	  }
+	  	  
+
+	  	 
+	  	 /*
+	  	 	Creates a separate course for each name that exists in the current course record
+	  	 */	  	 
+	  	  foreach($names as $name)
+	  	  {
+		  	  $shortestname = $name;
+		  	  $longestname = $name;
+		  	  $shortestname = trim(trim($shortestname,' '),'"');
+			  $longestname = trim(trim($longestname,' '),'"');
+			  $tempname = $shortestname;
+
+			  /*
+			  		Create possible exception case for campuses that tend to have a 
+			  		Course Code + course name in the COURSE field. 
+			  */
+			  $course_fields = array (
+					'code' => $shortestname,
 					'name' => $longestname,
 					'academic_department' => array('value' => ''),
-					'processing_department' =>  array('value' => 'TestRes'), //Not sure where to get this from - maybe the config API?	
+					'processing_department' =>  array('value' => $processing_dept), 	
 					'status' => 'ACTIVE',
 					'start_date' => $start,
 					'end_date' => $end,
-					'searchable_id' => array($line[$record_num_pos]),
-					'note'=> $notecontent		
+					'searchable_id' => array($searchable_ids),
+					'note'=> $notes_array		
 			  );
-			  $body = json_encode($course_fields);	  
-			  $output = curljson($url,$body);
-			  $course_xml = new SimpleXMLElement($output);
-	  	  		if($course_xml->errorsExist == "true")
-	  	  		{
-	  	  			$continue = true;
-	  	  		}
-	  	  		else
-	  	  		{
-	  	  			$continue = false;
-	  	  		}
-	  	  		
-	  	  		
-	  	  	}
-	  	  }
-		  /*
-			Gets the new course ID to send to the reading lists api
-			Uses returned course response to get the course ID in Alma to send to the reading list API
-		  */
-		  $course_id = $course_xml->id.'';
+
+
+			  $body = json_encode($course_fields);	
+			  $course_xml = curljson($url,$body);
+			  // Check and make sure that course code is unique.  If it's not, we receive an error and iterate to get the unique value of the course code. 
+			  $n = 1;
+			 // $course_xml = new SimpleXMLElement($output);
+			  $continue = true;
+		  
+			  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
+			  {
+					while(($continue == true) && ($n < 30))
+					{
+						$n++;
+						$tempname = $shortestname . '-' . $n;
+						//redo the above, with a unique ID
+						 $course_fields = array (
+							'code' => $tempname,
+							'name' => $longestname,
+							'academic_department' => array('value' => ''),
+							'processing_department' =>  array('value' =>  $processing_dept), 
+							'status' => 'ACTIVE',
+							'start_date' => $start,
+							'end_date' => $end,
+							'searchable_id' => array($line[$record_num_pos]),
+							'note'=> $notes_array		
+					  );
+					  $body = json_encode($course_fields);	  
+					  $course_xml = curljson($url,$body);
+					  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
+					  {
+							$continue = true;
+					  }
+					  else
+					  {
+							$continue = false;
+					  }
+					}
+			  }
+			  /*
+				Gets the new course ID to send to the reading lists api
+				Uses returned course response to get the course ID in Alma to send to the reading list API
+			  */
+			  $course_id = $course_xml->id.'';
   
-		  /*	  
-			Create reading list
-			Create parameters for the reading list Create Reading List API
-	
-		  */
-		  $readinglist_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
+			  /*	  
+				Create reading list
+				Create parameters for the reading list Create Reading List API
+			  */
+			  $readinglist_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
 
-		  $reading_list = array (
-				'code' => $tempname,
-				'name' => $longestname,
-				'status' => array('value' => 'Complete' )
-		   );	
+			  $reading_list = array (
+					'code' => $tempname,
+					'name' => $longestname,
+					'status' => array('value' => 'Complete' )
+			   );	
 
-		   $list_body = json_encode($reading_list);
-		   $reading_output = curljson($readinglist_url,$list_body);
-		   $reading_xml = new SimpleXMLElement($reading_output);
-			/*
-				Create citations!
-				Calls matchitems() to obtain the bib record mms ids for each attached item in the course
-			*/	
+			   $list_body = json_encode($reading_list);
+			   $reading_xml = curljson($readinglist_url,$list_body);
+				/*
+					Create citations!
+					Calls matchitems() to obtain the bib record mms ids for each attached item in the course
+				*/	
 	
-			$reading_list_id = $reading_xml->id;
-			$citation_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists/'.$reading_list_id.'/citations?apikey='.$key;  
+				$reading_list_id = $reading_xml->id;
+				$citation_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists/'.$reading_list_id.'/citations?apikey='.$key;  
 	
-			/*
-				Gets the items attached to each course record and adds to citations
-			*/
-			if (strlen($line[$items_list_pos]) > 4)
-			{
-				$items = explode(';',$line[$items_list_pos]);
-				$bib_ids = matchitems($items,$argv[2]);
-				// Removes duplicate bibs - Alma uses bibs instead of items, so we end up with dupes
-				$bib_ids = array_map("unserialize", array_unique(array_map("serialize", $bib_ids)));
+				/*
+					Gets the items attached to each course record and adds to citations
+				*/
+				if (strlen($line[$items_list_pos]) > 4)
+				{	
+					$items = explode(';',$line[$items_list_pos]);
+					// Second file is barcodes.csv (item record numbers and corresponding barcodes)
+					$bib_ids = matchitems($items,$argv[2],$searchable_ids);
+					// Removes duplicate bibs - Alma uses bibs instead of items, so we end up with dupes
+					$bib_ids = array_map("unserialize", array_unique(array_map("serialize", $bib_ids)));
 		
 
-				// Add a citation for each bib record
-				// Static values for complete and physical book seem ok here, they should always be the same	
-				foreach($bib_ids as $bib_id)
-				{
-					$citations = array (
-						'status' => array('value' => 'Complete',
-							'desc' => 'Complete'
-						),
-						'type' => array('value' => 'BK',
-							'desc' => 'Physical Book'
-						),
-						'metadata' => $bib_id
+					// Add a citation for each bib record
+					// Static values for complete and physical book seem ok here, they should always be the same	
+					foreach($bib_ids as $bib_id)
+					{
+						$citations = array (
+							'status' => array('value' => 'Complete',
+								'desc' => 'Complete'
+							),
+							'type' => array('value' => 'BK',
+								'desc' => 'Physical Book'
+							),
+							'metadata' => $bib_id
 			
-					);
-					$citation_body = json_encode($citations);
-					$citation_output  = curljson($citation_url,$citation_body);
-					var_dump($citation_output);
+						);
+						$citation_body = json_encode($citations);
+						var_dump($citation_body);
+						$citation_output  = curljson($citation_url,$citation_body);
+					}
 				}
 			}
-		}
+		}	
 	}
 }
 fclose($file);
+
+
+
 
 ?>
 
