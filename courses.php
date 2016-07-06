@@ -56,13 +56,15 @@ function getdates($date,$default_date)
 	return $date;
 }
 
+
 /*
 	Removes the "::a" from the item list from extracted csv file format
+	Format can also be "i2169787:09-05-16:a"
 */
 function trimitems($item)
 {
 	$trimmed_item = ltrim($item,' "');
-  	$trimmed_item = rtrim($trimmed_item,'::a"');
+	$trimmed_item = explode(':',$trimmed_item)[0];
   	return $trimmed_item;
 }
 
