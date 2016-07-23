@@ -2,7 +2,7 @@
 
 ######Pre-requisite setup in Alma
    - The SRU integration profile must be set up in Alma prior to running courses.php
-   - A default course unit must be set up in Alma and set in the your .ini file
+   - A default course unit must be set up in Alma and set in your .ini file
    
 ######courses.ini
 
