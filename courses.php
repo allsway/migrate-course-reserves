@@ -12,27 +12,25 @@
 
 function curljson ($url,$body)
 {
-		$curl = curl_init($url);
-		curl_setopt($curl, CURLOPT_HEADER, false);
-		curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
-		curl_setopt($curl, CURLOPT_POST, true);
-		curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
-		$response = curl_exec($curl);
-		curl_close($curl);
-		try 
-		{
-			$xml = new SimpleXMLElement($response);
-			return $xml;
-		}
-		catch(Exception $exception)
-		{
-			echo $exception;
-			shell_exec('echo `date` ' . $exception . ' >> course_errors.log');
-			exit;
-		}
-
-
+	$curl = curl_init($url);
+	curl_setopt($curl, CURLOPT_HEADER, false);
+	curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt($curl, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
+	curl_setopt($curl, CURLOPT_POST, true);
+	curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+	$response = curl_exec($curl);
+	curl_close($curl);
+	try 
+	{
+		$xml = new SimpleXMLElement($response);
+		return $xml;
+	}
+	catch(Exception $exception)
+	{
+		echo $exception;
+		shell_exec('echo `date` ' . $exception . ' >> course_errors.log');
+		exit;
+	}
 }
 
 
@@ -55,7 +53,6 @@ function getdates($date,$default_date)
 	}
 	return $date;
 }
-
 
 /*
 	Removes the "::a" from the item list from extracted csv file format
@@ -98,6 +95,14 @@ function callsru($searchterm)
 	
 }
 
+function cleanbarcode($barcode)
+{
+	$barcode = preg_replace('/[\x00-\x1F\x80-\xFF]/', '', $barcode);
+	$barcode  preg_replace('/[^A-Za-z0-9\-]/', '', $barcode);
+	$barcode = str_replace('/\s+/', '', $barcode);
+	return $barcode;
+}
+
 /*
 	Gets the matches for the item in the item csv file
 	greps the item record number from the delivered items list (assumming order here, can alter if need be)
@@ -122,9 +127,9 @@ function matchitems($items,$file2,$oldid)
   	  {
 		$item = trimitems($item);
 		$barcode_position = "2";
-		$result =  shell_exec("grep " .$item. " " . $file2 . " | cut -d, -f" . $barcode_position );
-		echo $result . PHP_EOL;
-		if (strlen($result) < 4)
+		$barcode =  shell_exec("grep " .$item. " " . $file2 . " | cut -d, -f" . $barcode_position );
+		$barcode = cleanbarcode($barcode);
+		if (strlen($barcode) < 4)
 		{
 			shell_exec("echo `date`  barcode for ".$item." not found in file >> course_errors.log");
 		}
@@ -132,8 +137,7 @@ function matchitems($items,$file2,$oldid)
 		{
 			// barcodes with spaces cause SRU response issue
 			// should check with other characters too..
-			$result = str_replace(' ', '', $result);
-			$xml = callsru($result);
+			$xml = callsru($barcode);
 			if(($xml->numberOfRecords > 0) && ($xml->numberOfRecords < 2))
 			{
 				// Pulling the 245 $a, $b for title info
@@ -177,6 +181,7 @@ $GLOBALS['campuscode'] = $ini_array['campuscode'];
 $GLOBALS['sruurl'] = $ini_array['sruurl'];
 $processing_dept =  $ini_array['processing_dept'];
 $default_date = $ini_array['default_date'];
+$start_date = $ini_array['start_date'];
 
 
 $url = $baseurl.'/almaws/v1/courses?apikey='.$key;
@@ -213,45 +218,45 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
   */
 	  if (strpos(implode($delimiter,$line),"RECORD #") !== false)
 	  {
-			for ($i=0; $i<count($line); $i++)
+		for ($i=0; $i<count($line); $i++)
+		{
+			switch($line[$i])
 			{
-				switch($line[$i])
-				{
-					case "RECORD #":
-					$record_num_pos = $i;
-					break;
-					case "BEGIN DATE":
-					$begin_date_pos = $i;
-					break;
-					case "END DATE":
-					$end_date_pos = $i;
-					break;
-					case "CREATED":
-					$created_date_pos = $i;
-					break;
-					case "UPDATED":
-					$updated_date_pos = $i;
-					break;
-					case "PROF/TA":
-					$prof_pos = $i;
-					break;
-					case "COURSE":
-					$course_field_pos = $i;
-					break;
-					case "ITEM ID":
-					$items_list_pos = $i;
-					break;
-					case "URL":
-					$url_pos = $i;
-					break;
-					case "COUR NOTE":
-					$note_pos = $i;
-					break;
-					default:
-					shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
-				
-				}
+				case "RECORD #":
+				$record_num_pos = $i;
+				break;
+				case "BEGIN DATE":
+				$begin_date_pos = $i;
+				break;
+				case "END DATE":
+				$end_date_pos = $i;
+				break;
+				case "CREATED":
+				$created_date_pos = $i;
+				break;
+				case "UPDATED":
+				$updated_date_pos = $i;
+				break;
+				case "PROF/TA":
+				$prof_pos = $i;
+				break;
+				case "COURSE":
+				$course_field_pos = $i;
+				break;
+				case "ITEM ID":
+				$items_list_pos = $i;
+				break;
+				case "URL":
+				$url_pos = $i;
+				break;
+				case "COUR NOTE":
+				$note_pos = $i;
+				break;
+				default:
+				shell_exec("echo `date` Field ".$line[$i]." not found in file >> course_errors.log");
+			
 			}
+		}
 	  }
 	  else
 	  {  	 	  
@@ -259,6 +264,10 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 	  		Call getdates to re-arrange the date fields so that they are accepted by the Alma APIs
 		*/
 		  $start = getdates($line[$begin_date_pos],$default_date);
+		  if($start == $default_date)
+		  {
+		  	$start = $start_date;
+		  }
 		  $end = getdates($line[$end_date_pos],$default_date);
 				 
 		 /*
@@ -329,15 +338,15 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 			  		Course Code + course name in the COURSE field. 
 			  */
 			  $course_fields = array (
-					'code' => $shortestname,
-					'name' => $longestname,
-					'academic_department' => array('value' => ''),
-					'processing_department' =>  array('value' => $processing_dept), 	
-					'status' => 'ACTIVE',
-					'start_date' => $start,
-					'end_date' => $end,
-					'searchable_id' => array($searchable_ids),
-					'note'=> $notes_array		
+				'code' => $shortestname,
+				'name' => $longestname,
+				'academic_department' => array('value' => ''),
+				'processing_department' =>  array('value' => $processing_dept), 	
+				'status' => 'ACTIVE',
+				'start_date' => $start,
+				'end_date' => $end,
+				'searchable_id' => array($searchable_ids),
+				'note'=> $notes_array		
 			  );
 
 
@@ -350,33 +359,33 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 		  
 			  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
 			  {
-					while(($continue == true) && ($n < 30))
-					{
-						$n++;
-						$tempname = $shortestname . '-' . $n;
-						//redo the above, with a unique ID
-						 $course_fields = array (
-							'code' => $tempname,
-							'name' => $longestname,
-							'academic_department' => array('value' => ''),
-							'processing_department' =>  array('value' =>  $processing_dept), 
-							'status' => 'ACTIVE',
-							'start_date' => $start,
-							'end_date' => $end,
-							'searchable_id' => array($line[$record_num_pos]),
-							'note'=> $notes_array		
-					  );
-					  $body = json_encode($course_fields);	  
-					  $course_xml = curljson($url,$body);
-					  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
-					  {
-							$continue = true;
-					  }
-					  else
-					  {
-							$continue = false;
-					  }
-					}
+				while(($continue == true) && ($n < 30))
+				{
+					$n++;
+					$tempname = $shortestname . '-' . $n;
+					//redo the above, with a unique ID
+					 $course_fields = array (
+						'code' => $tempname,
+						'name' => $longestname,
+						'academic_department' => array('value' => ''),
+						'processing_department' =>  array('value' =>  $processing_dept), 
+						'status' => 'ACTIVE',
+						'start_date' => $start,
+						'end_date' => $end,
+						'searchable_id' => array($line[$record_num_pos]),
+						'note'=> $notes_array		
+				  );
+				  $body = json_encode($course_fields);	  
+				  $course_xml = curljson($url,$body);
+				  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
+				  {
+						$continue = true;
+				  }
+				  else
+				  {
+						$continue = false;
+				  }
+				}
 			  }
 			  /*
 				Gets the new course ID to send to the reading lists api
@@ -391,9 +400,9 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 			  $readinglist_url = $baseurl.'/almaws/v1/courses/'.$course_id.'/reading-lists?apikey='.$key;
 
 			  $reading_list = array (
-					'code' => $tempname,
-					'name' => $longestname,
-					'status' => array('value' => 'Complete' )
+				'code' => $tempname,
+				'name' => $longestname,
+				'status' => array('value' => 'Complete' )
 			   );	
 
 			   $list_body = json_encode($reading_list);
@@ -417,7 +426,6 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 					// Removes duplicate bibs - Alma uses bibs instead of items, so we end up with dupes
 					$bib_ids = array_map("unserialize", array_unique(array_map("serialize", $bib_ids)));
 		
-
 					// Add a citation for each bib record
 					// Static values for complete and physical book seem ok here, they should always be the same	
 					foreach($bib_ids as $bib_id)
@@ -447,15 +455,6 @@ fclose($file);
 
 
 ?>
-
-
-
-
-
-
-
-
-
 
 
 
