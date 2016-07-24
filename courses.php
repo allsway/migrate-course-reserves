@@ -99,7 +99,7 @@ function cleanbarcode($barcode)
 {
 	$barcode = preg_replace('/[\x00-\x1F\x80-\xFF]/', '', $barcode);
 	$barcode  preg_replace('/[^A-Za-z0-9\-]/', '', $barcode);
-	$barcode = str_replace('/\s+/', '', $barcode);
+	$barcode = str_replace(' ', '', $barcode);
 	return $barcode;
 }
 
