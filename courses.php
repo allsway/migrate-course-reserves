@@ -61,7 +61,7 @@ function getdates($date,$default_date)
 function trimitems($item)
 {
 	$trimmed_item = ltrim($item,' "');
-	$trimmed_item = explode(':',$trimmed_item)[0];
+	$trimmed_item = array_shift(explode(':',$trimmed_item));
   	return $trimmed_item;
 }
 
