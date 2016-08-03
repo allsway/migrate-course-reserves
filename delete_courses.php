@@ -48,23 +48,31 @@ function delete_course($url)
 	
 	Should be used for testing ONLY
 */
-$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses?apikey='.$key.'&format=json';
-	  
-//echo $url;
-$json = getjson($url);
 
-foreach($json['course'] as $course)
-{
-	if (isset($course['note'][0]))
+for ($i=0; $i<100; $i+=10)
 	{
-		if($course['note'][0]['created_by'] == 'exl_api')
-		{
-			echo $course['id'] . " " . $course['note'][0]['created_by'] . PHP_EOL;
-			$url2 = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/'.$course['id'].'?apikey='.$key;
-			$result = delete_course($url2);
-		}
+	$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses?apikey='.$key.'&format=json&offset='.$i;
+	
+	//echo $url;
+	$json = getjson($url);
+	
+	foreach($json['course'] as $course)
+	{
+	      if (isset($course['note'][0]))
+	      {
+	                if($course['note'][0]['created_by'] == 'exl_api')
+	                {
+	                        echo $course['id'] . " " . $course['note'][0]['created_by'] . PHP_EOL;
+	                        $url2 = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/'.$course['id'].'?apikey='.$key;
+	                        $result = delete_course($url2);
+	                        var_dump($result);
+	                }
+	      }
 	}
+
+
 }
+?>
 
 
 
