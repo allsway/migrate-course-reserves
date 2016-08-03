@@ -22,7 +22,7 @@ function getjson ($url)
 	}
 	else
 	{
-			return -1;
+		return -1;
 	}
 }
 
@@ -31,7 +31,6 @@ function getjson ($url)
 */
 function delete_course($url)
 {
-
 	$ch = curl_init();
 	curl_setopt($ch, CURLOPT_URL, $url);
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
@@ -42,10 +41,8 @@ function delete_course($url)
 }
 
 
-
 /*
 	Deletes all course records with the creator 'exl_api'	
-	
 	Should be used for testing ONLY
 */
 
@@ -60,19 +57,18 @@ for ($i=0; $i<100; $i+=10)
 	{
 	      if (isset($course['note'][0]))
 	      {
-	                if($course['note'][0]['created_by'] == 'exl_api')
-	                {
+	               if($course['note'][0]['created_by'] == 'exl_api')
+	               {
 	                        echo $course['id'] . " " . $course['note'][0]['created_by'] . PHP_EOL;
 	                        $url2 = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/'.$course['id'].'?apikey='.$key;
 	                        $result = delete_course($url2);
 	                        var_dump($result);
-	                }
+	               }
 	      }
 	}
 
-
 }
-?>
+
 
 
 
