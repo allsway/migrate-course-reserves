@@ -11,12 +11,14 @@ Configuration setup can be modified in the file courses.ini.
 ```
 apikey = "apikey"
 baseurl = "baseurl"
+sruurl = "base url for the SRU"
 campuscode = "campus code for SRU"
-;delimter used in the courses.csv course extract file
 delimeter = "|"    
-;The name for the course processing department that you would like for 'courses' to use.
 ;View your current processing deparments under Fulfillment Configuration | Courses | Processing Departments. 
 processing_dept = "Course Unit"
+location = "active checkin location"
+default_date = "2017-06-09"
+end_date = "2017-01-19"
 ```
 
 ######courses.php
