@@ -1,10 +1,10 @@
-#####README
+##### README
 
-######Pre-requisite setup in Alma
+###### Pre-requisite setup in Alma
    - The SRU integration profile must be set up in Alma prior to running courses.php
    - A default course unit must be set up in Alma and set in your .ini file
    
-######courses.ini
+###### courses.ini
 
 Configuration setup can be modified in the file courses.ini.  
 
@@ -21,7 +21,7 @@ default_date = "2017-06-09"
 end_date = "2017-01-19"
 ```
 
-######courses.php
+###### courses.php
 Takes as arguments: 
    - a csv file of course records 
    - a csv file of item records
@@ -34,5 +34,5 @@ Creates:
   - A citation for each unique bib record (from the associated item record) in the CSV file item list
   - course_errors.log file, recording any errors with the reading of the CSV file and loading of the courses
   
-######delete_courses.php
+###### delete_courses.php
 Removes _all_ courses created by the Alma API.  Use only when testing.  
