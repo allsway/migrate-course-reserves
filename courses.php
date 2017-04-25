@@ -197,6 +197,7 @@ $prof_pos = -1;
 $course_field_pos = -1;
 $items_list_pos = -1;
 $ccode3_pos = -1;
+$location_pos = -1;
 $note_pos = -1;
 $url_pos = -1;
 
@@ -247,9 +248,9 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				case "ITEM ID":
 				$items_list_pos = $i;
 				break;
-				//case "URL":
-				//$url_pos = $i;
-				//break;
+				case "LOCATION":
+				$location_pos = $i;
+				break;
 				case "COUR NOTE":
 				$note_pos = $i;
 				break;
@@ -267,12 +268,11 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				Call getdates to re-arrange the date fields so that they are accepted by the Alma APIs
 			*/
 			  $start = getdates($line[$begin_date_pos],$default_date);
-			 
 			  $end = getdates($line[$end_date_pos],$default_date);
+			  
 			  if($start == $end)
 			  {
 					$start = date('Y-m-d',(strtotime ( '-1 day' , strtotime ( $start) ) ));
-
 			  }
 				 
 			 /*
@@ -326,7 +326,19 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				 }
 			  }
 		  
-
+		  	 // Special case for Northridge - sets processing department. 
+			 if(preg_match('^tcc',($line[$location_pos])))
+			 {
+			 	$processing_dept = 'TCCReserves';
+			 }
+			 else if (preg_match('^mm',($line[$location_pos])))
+			 {
+			 	$processing_dept = 'M&M';
+			 }
+			 else
+			 {	
+			 	$processing_dept = 'RPM';
+			 }
 		 
 			 /*
 				Creates a separate course for each name that exists in the current course record
