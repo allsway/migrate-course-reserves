@@ -19,6 +19,7 @@ function curljson ($url,$body)
 	curl_setopt($curl, CURLOPT_POST, true);
 	curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
 	$response = curl_exec($curl);
+	var_dump($response);
 	curl_close($curl);
 	try 
 	{
@@ -172,8 +173,11 @@ function matchitems($items,$file2,$oldid)
 	Sets script configuration parameters
 */
 
-
+$begin_date_pos = -1;
+$end_date_pos = -1;
 $ini_array = parse_ini_file("courses.ini");
+
+
 
 $key= $ini_array['apikey'];
 $baseurl = $ini_array['baseurl'];
@@ -189,8 +193,7 @@ $url = $baseurl.'/almaws/v1/courses?apikey='.$key;
 
 
 $record_num_pos = -1;
-$begin_date_pos = -1;
-$end_date_pos = -1;
+
 $created_date_pos = -1;
 $updated_date_pos = -1;
 $prof_pos = -1;
@@ -229,9 +232,9 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				case "BEGIN DATE":
 				$begin_date_pos = $i;
 				break;
-				case "END DATE":
-				$end_date_pos = $i;
-				break;
+			//	case "END DATE":
+			//	$end_date_pos = $i;
+			//	break;
 				case "CREATED(COURSE)":
 				$created_date_pos = $i;
 				break;
@@ -247,9 +250,6 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				case "ITEM ID":
 				$items_list_pos = $i;
 				break;
-				//case "URL":
-				//$url_pos = $i;
-				//break;
 				case "COUR NOTE":
 				$note_pos = $i;
 				break;
@@ -267,13 +267,19 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				Call getdates to re-arrange the date fields so that they are accepted by the Alma APIs
 			*/
 			  $start = getdates($line[$begin_date_pos],$default_date);
-			 
-			  $end = getdates($line[$end_date_pos],$default_date);
+			  if(isset($line[$end_date_pos]))
+			  {
+			  	$end = $line[$end_date_pos];
+			  }
+			  else
+			  {
+			  	$end = $default_date;
+			  }
 			  if($start == $end)
 			  {
 					$start = date('Y-m-d',(strtotime ( '-1 day' , strtotime ( $start) ) ));
-
 			  }
+
 				 
 			 /*
 				Options:
@@ -284,8 +290,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 			  $names = explode(';', $line[$course_field_pos]);
 			  $temp_array = array();
 		 
-			  $searchable_ids = $line[$record_num_pos];
-			  $searchable_ids = str_replace('"','',$searchable_ids);
+
 
 			 /*
 				Creates notes section of course record
@@ -315,7 +320,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 						$note_counter++;
 				  }
 			  }
-			  $notes_array[$note_counter] = array('content' => "Created by the Alma API on 4/3/2017 for test load");
+			  $notes_array[$note_counter] = array('content' => "Created by the Alma API on 5-1-2017 for test load");
 			  if($url_pos > 0 && strlen($urls[0])>2)
 			  {
 				 foreach($urls as $url_note)
@@ -326,19 +331,97 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				 }
 			  }
 		  
-
+			 if (strpos($line[$prof_pos], 'IRC') !== false)
+			 {
+			 	$processing_dept = 'IRC';
+			 }
+			 else
+			 {
+			 	$processing_dept = 'courses';
+			 }
 		 
 			 /*
 				Creates a separate course for each name that exists in the current course record
 			 */	  	 
-			  foreach($names as $name)
-			  {
-				  $shortestname = $name;
-				  $longestname = $name;
-				  $shortestname = trim(trim($shortestname,' '),'"');
-				  $longestname = trim(trim($longestname,' '),'"');
-				  $tempname = $shortestname;
-
+			 // foreach($names as $name)
+			 // {
+				$searchable_ids = array();  
+				$old_id = $line[$record_num_pos];
+				$old_id = str_replace('"','',$old_id);
+				$searchable_ids[0] = $old_id;
+				  				 
+				 $shortestname = $names[0];
+				 $longestname = $names[0];
+				 if (count($names) == 2)
+				 {
+					if(strlen($names[0]) > strlen($names[1]))
+					{
+						$longestname = $names[0];
+						$shortestname = $names[1];
+					}
+					else
+					{
+						$longestname = $names[1];
+						$shortestname = $names[0];
+					}
+				 }
+				 else if(count($names) > 2)
+				 {
+				 	// Looping twice so that we can find match between chosen code and course name 
+					 foreach($names as $name)			 	  
+					 {
+						if (strpos($name, 'MAIN') !== false) 
+						{
+							$temp = str_replace("--","",$name);
+							$temp =  str_replace("MAIN","",$temp);
+							$shortestname = trim(trim($temp,' '),'"');
+							
+						}
+					 }
+					 $shortest_comp = strtolower(substr($shortestname,0,2)); 
+					 echo $shortest_comp . PHP_EOL;
+					 $searchable_id_counter = 1;
+					 foreach($names as $name)
+					 {
+					 	$name = trim(trim($name,' '),'"');
+				
+					 	if($name != $shortestname)
+					 	{
+					 		
+					 		if(strcmp(strtolower(substr($name,0,2)), $shortest_comp) == 0)
+					 		{
+					 			$longestname = $name;
+					 		}
+					 		else
+					 		{
+					 			echo "hey there!" . PHP_EOL;
+					 			echo $name;
+					 			if($searchable_id_counter <= 9)
+					 			{
+					 				echo 'Counter' . $searchable_id_counter;
+									// add to searchable IDs
+									$searchable_ids[$searchable_id_counter] = $name;
+									$searchable_id_counter++;
+									
+								}
+								else
+								{	
+									$searchable_ids[$searchable_id_counter] += $name;
+								}
+					 		}
+					 	}
+					 }
+				 }
+				$shortestname = trim(trim($shortestname,' '),'"');
+				$tempname = $shortestname;
+				$longestname = trim(trim($longestname,' '),'"');
+				 
+			 	  	// if there are two names, make the shortest name the code, and the longest name the course name
+			 		// else if there are more than 2 names, select the MAIN code and course name that starts the same as the course name.  
+			 		// all other names become searchable ids. 
+			 		
+			 		
+				  
 				  /*
 						Create possible exception case for campuses that tend to have a 
 						Course Code + course name in the COURSE field. 
@@ -351,7 +434,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 					'status' => 'ACTIVE',
 					'start_date' => $start,
 					'end_date' => $end,
-					'searchable_id' => array($searchable_ids),
+					'searchable_id' => $searchable_ids,
 					'note'=> $notes_array		
 				  );
 
@@ -364,7 +447,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 				 // $course_xml = new SimpleXMLElement($output);
 				  $continue = true;
 		  
-				  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
+				  if($course_xml->errorsExist == "true" && ($course_xml->errorList->error->errorCode == "401006" || $course_xml->errorList->error->errorCode == "401919"))
 				  {
 					while(($continue == true) && ($n < 30))
 					{
@@ -379,10 +462,10 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 							'status' => 'ACTIVE',
 							'start_date' => $start,
 							'end_date' => $end,
-							'searchable_id' => array($line[$record_num_pos]),
+							'searchable_id' => $searchable_ids,
 							'note'=> $notes_array		
 					  );
-					  $body = json_encode($course_fields);	  
+					  $body = json_encode($course_fields);	
 					  $course_xml = curljson($url,$body);
 					  if($course_xml->errorsExist == "true" && $course_xml->errorList->error->errorCode = "401006")
 					  {
@@ -454,7 +537,7 @@ while (($line = fgetcsv($file,10000,$delimiter)) !== FALSE) {
 					}
 				}
 			}	
-		}
+		//}
 	}
 }
 fclose($file);
